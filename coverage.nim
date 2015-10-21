@@ -130,9 +130,9 @@ when not defined(js):
                 files.add(jFile)
             request["source_files"] = files
             var data = newMultipartData()
-            echo "REQUEST: ", $request
+            echo "COVERALLS REQUEST: ", $request
             data["json_file"] = ("file.json", "application/json", $request)
-            echo postContent("https://coveralls.io/api/v1/jobs", multipart=data)
+            echo "COVERALLS RESPONSE: ", postContent("https://coveralls.io/api/v1/jobs", multipart=data)
 
 when isMainModule:
     proc toTest(x, y: int) {.cov.} =

@@ -13,3 +13,5 @@ doAssert(totalCoverage() == 0.5)
 test1(1)
 
 doAssert(totalCoverage() == 1.0)
+
+sendCoverageResultsToCoveralls()
