@@ -1,6 +1,8 @@
 import macros
 import tables
 import strutils
+import sequtils
+import algorithm
 
 proc fileName(n: NimNode): string =
     let ln = n.lineinfo
@@ -14,7 +16,14 @@ proc lineNumber(n: NimNode): int =
     result = parseInt(ln.substr(i + 1, j - 1))
 
 type CovData* = tuple[lineNo: int, passed: bool]
-var coverageResults* = newSeq[tuple[fileName: cstring, data: ptr seq[CovData]]]()
+type CovChunk* = seq[CovData]
+var coverageResults* = initTable[string, seq[ptr CovChunk]]()
+
+proc registerCovChunk*(fileName: string, chunk: var CovChunk) =
+    if coverageResults.getOrDefault(fileName).isNil:
+        coverageResults[fileName] = @[addr chunk]
+    else:
+        coverageResults[fileName].add(addr chunk)
 
 proc transform(n, track, list: NimNode): NimNode {.compileTime.} =
     result = copyNimNode(n)
@@ -42,21 +51,43 @@ macro cov*(body: untyped): untyped =
         var listVar = newStmtList(
             newNimNode(nnkVarSection).add(
                 newNimNode(nnkIdentDefs).add(trackSym, newNimNode(nnkBracketExpr).add(newIdentNode("seq"), newIdentNode("CovData")), prefix(trackList, "@"))),
-            newCall("add", newIdentNode("coverageResults"), newPar(newCall("cstring", newStrLitNode(file)), newCall("addr", trackSym)))
+                newCall("registerCovChunk", newStrLitNode(file), trackSym)
             )
 
     result = transform(body, trackSym, trackList)
     result = newStmtList(listVar, result)
 
+proc coveredLinesInFile*(fileName: string): seq[CovData] =
+    result = newSeq[CovData]()
+    for chunk in coverageResults[fileName]:
+        result = result.concat(chunk[])
+    result.sort(proc (a, b: CovData): int = cmp(a.lineNo, b.lineNo))
+
+    var newRes = newSeq[CovData](result.len)
+    # Deduplicate lines
+    var j = 0
+    var lastLine = 0
+    for i in 0 ..< result.len:
+        if result[i].lineNo == lastLine:
+            if not result[i].passed:
+                newRes[j - 1].passed = false
+        else:
+            lastLine = result[i].lineNo
+            newRes[j] = result[i]
+            inc j
+    newRes.setLen(j)
+    shallowCopy(result, newRes)
+
 proc coverageInfoByFile*(): Table[string, tuple[linesTracked, linesCovered: int]] =
     result = initTable[string, tuple[linesTracked, linesCovered: int]]()
-    for cr in coverageResults:
-        let fn = $(cr.fileName)
-        var (linesTracked, linesCovered) = result.getOrDefault(fn)
-        for c in cr.data[]:
-            inc linesTracked
-            if c.passed: inc linesCovered
-        result[fn] = (linesTracked, linesCovered)
+    for k, v in coverageResults:
+        var linesTracked = 0
+        var linesCovered = 0
+        for chunk in v:
+            for data in chunk[]:
+                inc linesTracked
+                if data.passed: inc linesCovered
+        result[k] = (linesTracked, linesCovered)
 
 proc coveragePercentageByFile*(): Table[string, float] =
     result = initTable[string, float]()
@@ -66,11 +97,42 @@ proc coveragePercentageByFile*(): Table[string, float] =
 proc totalCoverage*(): float =
     var linesTracked = 0
     var linesCovered = 0
-    for cr in coverageResults:
-        for c in cr.data[]:
-            inc linesTracked
-            if c.passed: inc linesCovered
+    for k, v in coverageResults:
+        for chunk in v:
+            for data in chunk[]:
+                inc linesTracked
+                if data.passed: inc linesCovered
     result = linesCovered.float / linesTracked.float
+
+when not defined(js):
+    import os
+    import json
+    import httpclient
+
+    proc sendCoverageResultsToCoveralls*() =
+        var request = newJObject()
+        if existsEnv("TRAVIS_JOB_ID"):
+            request["service_name"] = newJString("travis-ci")
+            request["service_job_id"] = newJString(getEnv("TRAVIS_JOB_ID"))
+            var files = newJArray()
+            for k, v in coverageResults:
+                let lines = coveredLinesInFile(k)
+                var jLines = newJArray()
+                var curLine = 1
+                for data in lines:
+                    while data.lineNo > curLine:
+                        jLines.add(newJNull())
+                        inc curLine
+                    jLines.add(newJInt(if data.passed: 1 else: 0))
+                var jFile = newJObject()
+                jFile["name"] = newJString(k)
+                jFile["coverage"] = jLines
+                files.add(jFile)
+            request["source_files"] = files
+            var data = newMultipartData()
+            echo "REQUEST: ", $request
+            data["json_file"] = ("file.json", "application/json", $request)
+            echo postContent("https://coveralls.io/api/v1/jobs", multipart=data)
 
 when isMainModule:
     proc toTest(x, y: int) {.cov.} =
@@ -96,3 +158,5 @@ when isMainModule:
 
     echo coveragePercentageByFile()
     echo "TOTAL Coverage: ", totalCoverage()
+    echo "COVERED LINES: ", coveredLinesInFile("coverage.nim")
+    sendCoverageResultsToCoveralls()
