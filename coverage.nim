@@ -15,7 +15,7 @@ proc lineNumber(n: NimNode): int =
     let j = ln.rfind(',')
     result = parseInt(ln.substr(i + 1, j - 1))
 
-type CovData* = tuple[lineNo: int, passed: bool]
+type CovData* = tuple[lineNo: uint, passes: uint]
 type CovChunk* = seq[CovData]
 var coverageResults* = initTable[string, seq[ptr CovChunk]]()
 
@@ -34,11 +34,11 @@ proc transform(n, track, list: NimNode): NimNode {.compileTime.} =
         let lineno = result[^1].lineNumber
 
         template trackStmt(track, i) =
-            track[i].passed = true
+            inc track[i].passes
 
         result[^1] = newStmtList(getAst trackStmt(track, list.len), result[^1])
         template tup(lineno) =
-              (lineno, false)
+              (lineno.uint, 0.uint)
         list.add(getAst tup(lineno))
 
 macro cov*(body: untyped): untyped =
@@ -66,11 +66,11 @@ proc coveredLinesInFile*(fileName: string): seq[CovData] =
     var newRes = newSeq[CovData](result.len)
     # Deduplicate lines
     var j = 0
-    var lastLine = 0
+    var lastLine : uint = 0
     for i in 0 ..< result.len:
         if result[i].lineNo == lastLine:
-            if not result[i].passed:
-                newRes[j - 1].passed = false
+            if result[i].passes == 0:
+                newRes[j - 1].passes = 0
         else:
             lastLine = result[i].lineNo
             newRes[j] = result[i]
@@ -86,7 +86,7 @@ proc coverageInfoByFile*(): Table[string, tuple[linesTracked, linesCovered: int]
         for chunk in v:
             for data in chunk[]:
                 inc linesTracked
-                if data.passed: inc linesCovered
+                if data.passes != 0: inc linesCovered
         result[k] = (linesTracked, linesCovered)
 
 proc coveragePercentageByFile*(): Table[string, float] =
@@ -101,7 +101,7 @@ proc totalCoverage*(): float =
         for chunk in v:
             for data in chunk[]:
                 inc linesTracked
-                if data.passed: inc linesCovered
+                if data.passes != 0: inc linesCovered
     result = linesCovered.float / linesTracked.float
 
 when not defined(js):
@@ -133,12 +133,12 @@ when not defined(js):
             for k, v in coverageResults:
                 let lines = coveredLinesInFile(k)
                 var jLines = newJArray()
-                var curLine = 1
+                var curLine : uint = 1
                 for data in lines:
                     while data.lineNo > curLine:
                         jLines.add(newJNull())
                         inc curLine
-                    jLines.add(newJInt(if data.passed: 1 else: 0))
+                    jLines.add(newJInt(cast[int](data.passes)))
                     inc curLine
                 var jFile = newJObject()
                 jFile["name"] = newJString(relativePath / k)
