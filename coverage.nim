@@ -108,6 +108,9 @@ when not defined(js):
     import os, osproc
     import json
     import httpclient
+    import md5
+
+    proc md5OfFile(path: string): string = $getMD5(readFile(path))
 
     proc sendCoverageResultsToCoveralls*() =
         var request = newJObject()
@@ -139,6 +142,7 @@ when not defined(js):
                 var jFile = newJObject()
                 jFile["name"] = newJString(relativePath / k)
                 jFile["coverage"] = jLines
+                jFile["source_digest"] = newJString(md5OfFile(k))
                 files.add(jFile)
             request["source_files"] = files
             var data = newMultipartData()
