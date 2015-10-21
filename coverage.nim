@@ -143,36 +143,10 @@ when not defined(js):
                 jFile["name"] = newJString(relativePath / k)
                 jFile["coverage"] = jLines
                 jFile["source_digest"] = newJString(md5OfFile(k))
+                #jFile["source"] = newJString(readFile(k))
                 files.add(jFile)
             request["source_files"] = files
             var data = newMultipartData()
             echo "COVERALLS REQUEST: ", $request
             data["json_file"] = ("file.json", "application/json", $request)
             echo "COVERALLS RESPONSE: ", postContent("https://coveralls.io/api/v1/jobs", multipart=data)
-
-when isMainModule:
-    proc toTest(x, y: int) {.cov.} =
-      try:
-        case x
-        of 8:
-          if y > 9: echo "8.1"
-          else: echo "8.2"
-        of 9: echo "9"
-        else: echo "foo"
-        echo "no exception"
-      except IoError:
-        echo "IoError"
-
-    proc toTest2(x: int) {.cov.} =
-        if x == 0:
-            echo "x is 0"
-        else:
-            echo "x is: ", x
-
-    toTest(8, 2)
-    toTest2(1)
-
-    echo coveragePercentageByFile()
-    echo "TOTAL Coverage: ", totalCoverage()
-    echo "COVERED LINES: ", coveredLinesInFile("coverage.nim")
-    sendCoverageResultsToCoveralls()
