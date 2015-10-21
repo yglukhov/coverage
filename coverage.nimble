@@ -7,4 +7,4 @@ license       = "MIT"
 
 [Deps]
 Requires: "nim >= 0.10.0"
-Requires: "nakefile"
+Requires: "nake"
