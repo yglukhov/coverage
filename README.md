@@ -26,3 +26,9 @@ echo "TOTAL: ", totalCoverage()
 
 ### Notes
 - Code coverage is disabled if ```release``` is defined. Define ```enableCodeCoverage``` option to keep it enabled in release mode.
+
+# Travic CI + Coveralls integration
+If you're using [Travis CI](https://travis-ci.org) and [Coveralls](https://coveralls.io), you can upload coverage results right at the end of your program:
+```nim
+sendCoverageResultsToCoveralls()
+```
