@@ -139,6 +139,7 @@ when not defined(js):
                         jLines.add(newJNull())
                         inc curLine
                     jLines.add(newJInt(if data.passed: 1 else: 0))
+                    inc curLine
                 var jFile = newJObject()
                 jFile["name"] = newJString(relativePath / k)
                 jFile["coverage"] = jLines
