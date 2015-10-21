@@ -1,4 +1,4 @@
-# coverage
+# coverage [![Coverage Status](https://coveralls.io/repos/yglukhov/coverage/badge.svg?branch=master&service=github)](https://coveralls.io/github/yglukhov/coverage?branch=master)
 Code coverage library for Nim. Inspired by [Andreas Rumpf talk at OSCON](https://github.com/Araq/oscon2015).
 
 ## Usage
