@@ -105,7 +105,7 @@ proc totalCoverage*(): float =
     result = linesCovered.float / linesTracked.float
 
 when not defined(js):
-    import os
+    import os, osproc
     import json
     import httpclient
 
@@ -114,6 +114,18 @@ when not defined(js):
         if existsEnv("TRAVIS_JOB_ID"):
             request["service_name"] = newJString("travis-ci")
             request["service_job_id"] = newJString(getEnv("TRAVIS_JOB_ID"))
+
+            # Assume we're in git repo. Paths to sources should be relative to
+            # repo root
+            let gitRes = execCmdEx("git rev-parse --show-toplevel")
+            if gitRes.exitCode != 0:
+                raise newException(Exception, "GIT Error")
+
+            let curDir = getCurrentDir()
+
+            # TODO: The following is too naive!
+            let relativePath = curDir.substr(gitRes.output.len)
+
             var files = newJArray()
             for k, v in coverageResults:
                 let lines = coveredLinesInFile(k)
@@ -125,7 +137,7 @@ when not defined(js):
                         inc curLine
                     jLines.add(newJInt(if data.passed: 1 else: 0))
                 var jFile = newJObject()
-                jFile["name"] = newJString(k)
+                jFile["name"] = newJString(relativePath / k)
                 jFile["coverage"] = jLines
                 files.add(jFile)
             request["source_files"] = files
