@@ -22,7 +22,7 @@ echo "BY FILE: ", coveragePercentageByFile()
 echo "TOTAL: ", totalCoverage()
 # Outputs: TOTAL: 0.5
 
-# Finer grained information may accessed with coverageInfoByFile proc.
+# Finer grained information may be accessed with coverageInfoByFile proc.
 ```
 
 ### Notes
