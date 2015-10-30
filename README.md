@@ -4,6 +4,7 @@ Code coverage library for Nim. Inspired by [Andreas Rumpf talk at OSCON](https:/
 ## Usage
 ```nim
 import coverage
+import tables
 
 proc myProcToCover(x: int) {.cov.} = # Add cov pragma to proc definition to enable code coverage.
   if x == 0:
