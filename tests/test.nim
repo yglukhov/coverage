@@ -34,4 +34,10 @@ proc toTest(x, y: int) {.cov.} =
 toTest(8, 8)
 toTest(5, 5)
 
-sendCoverageResultsToCoveralls()
+when defined(js):
+    import tables
+    echo coverageInfoByFile()
+    echo coveragePercentageByFile()
+    echo coveredLinesInFile("test.nim")
+else:
+    sendCoverageResultsToCoveralls()

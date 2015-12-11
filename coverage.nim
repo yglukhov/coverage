@@ -15,15 +15,25 @@ proc lineNumber(n: NimNode): int =
     let j = ln.rfind(',')
     result = parseInt(ln.substr(i + 1, j - 1))
 
-type CovData* = tuple[lineNo: uint, passes: uint]
+type CovData* = tuple[lineNo: int, passes: int]
 type CovChunk* = seq[CovData]
 var coverageResults* = initTable[string, seq[ptr CovChunk]]()
 
 proc registerCovChunk*(fileName: string, chunk: var CovChunk) =
     if coverageResults.getOrDefault(fileName).isNil:
-        coverageResults[fileName] = @[addr chunk]
+        when defined(js):
+            var s : seq[ptr CovChunk]
+            {.emit: "`s` = [`chunk`[`chunk`_Idx]];".}
+            coverageResults[fileName] = s
+        else:
+            coverageResults[fileName] = @[addr chunk]
     else:
-        coverageResults[fileName].add(addr chunk)
+        when defined(js):
+            var s = coverageResults[fileName]
+            {.emit: "`s`.push(`chunk`[`chunk`_Idx]);".}
+            coverageResults[fileName] = s
+        else:
+            coverageResults[fileName].add(addr chunk)
 
 proc transform(n, track, list: NimNode): NimNode {.compileTime.} =
     result = copyNimNode(n)
@@ -38,7 +48,7 @@ proc transform(n, track, list: NimNode): NimNode {.compileTime.} =
 
         result[^1] = newStmtList(getAst trackStmt(track, list.len), result[^1])
         template tup(lineno) =
-              (lineno.uint, 0.uint)
+              (lineno, 0)
         list.add(getAst tup(lineno))
 
 macro cov*(body: untyped): untyped =
@@ -57,16 +67,29 @@ macro cov*(body: untyped): untyped =
     result = transform(body, trackSym, trackList)
     result = newStmtList(listVar, result)
 
+when defined(js):
+    proc derefChunk(dest: var CovChunk, src: ptr CovChunk) =
+        {.emit: """
+        `dest`[`dest`_Idx] = `src`;
+        """.}
+else:
+    template derefChunk(dest: var CovChunk, src: ptr CovChunk) =
+        shallowCopy(dest, src[])
+
 proc coveredLinesInFile*(fileName: string): seq[CovData] =
     result = newSeq[CovData]()
-    for chunk in coverageResults[fileName]:
-        result = result.concat(chunk[])
+    var tmp : seq[ptr CovChunk]
+    shallowCopy(tmp, coverageResults[fileName])
+    for i in 0 ..< tmp.len:
+        var covChunk : CovChunk
+        derefChunk(covChunk, tmp[i])
+        result = result.concat(covChunk)
     result.sort(proc (a, b: CovData): int = cmp(a.lineNo, b.lineNo))
 
     var newRes = newSeq[CovData](result.len)
     # Deduplicate lines
     var j = 0
-    var lastLine : uint = 0
+    var lastLine = 0
     for i in 0 ..< result.len:
         if result[i].lineNo == lastLine:
             if result[i].passes == 0:
@@ -83,8 +106,10 @@ proc coverageInfoByFile*(): Table[string, tuple[linesTracked, linesCovered: int]
     for k, v in coverageResults:
         var linesTracked = 0
         var linesCovered = 0
-        for chunk in v:
-            for data in chunk[]:
+        for i in 0 ..< v.len:
+            var covChunk : CovChunk
+            derefChunk(covChunk, v[i])
+            for data in covChunk:
                 inc linesTracked
                 if data.passes != 0: inc linesCovered
         result[k] = (linesTracked, linesCovered)
@@ -98,8 +123,10 @@ proc totalCoverage*(): float =
     var linesTracked = 0
     var linesCovered = 0
     for k, v in coverageResults:
-        for chunk in v:
-            for data in chunk[]:
+        for i in 0 ..< v.len:
+            var covChunk : CovChunk
+            derefChunk(covChunk, v[i])
+            for data in covChunk:
                 inc linesTracked
                 if data.passes != 0: inc linesCovered
     result = linesCovered.float / linesTracked.float
@@ -133,12 +160,12 @@ when not defined(js):
             for k, v in coverageResults:
                 let lines = coveredLinesInFile(k)
                 var jLines = newJArray()
-                var curLine : uint = 1
+                var curLine = 1
                 for data in lines:
                     while data.lineNo > curLine:
                         jLines.add(newJNull())
                         inc curLine
-                    jLines.add(newJInt(cast[int](data.passes)))
+                    jLines.add(newJInt(data.passes))
                     inc curLine
                 var jFile = newJObject()
                 jFile["name"] = newJString(relativePath / k)
