@@ -17,9 +17,9 @@ proc lineNumber(n: NimNode): int =
 
 type CovData* = tuple[lineNo: int, passes: int]
 type CovChunk* = seq[CovData]
-var coverageResults* = initTable[string, seq[ptr CovChunk]]()
+var coverageResults = initTable[string, seq[ptr CovChunk]]()
 
-proc registerCovChunk*(fileName: string, chunk: var CovChunk) =
+proc registerCovChunk(fileName: string, chunk: var CovChunk) =
     if coverageResults.getOrDefault(fileName).isNil:
         when defined(js):
             var s : seq[ptr CovChunk]
@@ -61,11 +61,11 @@ macro cov*(body: untyped): untyped =
         var listVar = newStmtList(
             newNimNode(nnkVarSection).add(
                 newNimNode(nnkIdentDefs).add(trackSym, newNimNode(nnkBracketExpr).add(newIdentNode("seq"), newIdentNode("CovData")), prefix(trackList, "@"))),
-                newCall("registerCovChunk", newStrLitNode(file), trackSym)
+                newCall(bindSym "registerCovChunk", newStrLitNode(file), trackSym)
             )
 
-    result = transform(body, trackSym, trackList)
-    result = newStmtList(listVar, result)
+        result = transform(body, trackSym, trackList)
+        result = newStmtList(listVar, result)
 
 when defined(js):
     proc derefChunk(dest: var CovChunk, src: ptr CovChunk) =
@@ -136,6 +136,81 @@ when not defined(js):
     import json
     import httpclient
     import md5
+
+    proc initCoverageDir*(path: string = ".") =
+        putEnv("NIM_COVERAGE_DIR", path)
+
+    proc saveCovResults() {.noconv.} =
+        let jCov = newJObject()
+        for k, v in coverageResults:
+            let jChunks = newJArray()
+            for chunk in v:
+                let jChunk = newJArray()
+                for ln in chunk[]:
+                    let jLn = newJArray()
+                    jLn.add(newJInt(ln.lineNo))
+                    jLn.add(newJInt(ln.passes))
+                    jChunk.add(jLn)
+                jChunks.add(jChunk)
+            jCov[k] = jChunks
+        var i = 0
+        while true:
+            let covFile = getEnv("NIM_COVERAGE_DIR") / "cov" & $i & ".json"
+            if not fileExists(covFile):
+                writeFile(covFile, $jCov)
+                break
+            inc i
+
+    proc getFileSourceCode(p: string): string =
+        readFile(p)
+
+    proc expandCovSeqIfNeeded(s: var seq[int], toLen: int) =
+        if s.len <= toLen:
+            let oldLen = s.len
+            s.setLen(toLen + 1)
+            for i in oldLen .. toLen:
+                s[i] = -1
+
+    proc createCoverageReport*() =
+        let covDir = getEnv("NIM_COVERAGE_DIR")
+        var i = 0
+
+        var covData = initTable[string, seq[int]]()
+
+        while true:
+            let covFile = getEnv("NIM_COVERAGE_DIR") / "cov" & $i & ".json"
+            if not fileExists(covFile):
+                break
+            inc i
+            let jf = parseJson(readFile(covFile))
+            for fileName, chunks in jf:
+                if fileName notin covData:
+                    covData[fileName] = @[]
+
+                for chunk in chunks:
+                    for ln in chunk:
+                        let lineNo = int(ln[0].num)
+                        let passes = int(ln[1].num)
+                        expandCovSeqIfNeeded(covData[fileName], lineNo)
+                        if covData[fileName][lineNo] == -1:
+                            covData[fileName][lineNo] = 0
+                        covData[fileName][lineNo] += passes
+            removeFile(covFile)
+
+        let jCovData = newJObject()
+        for k, v in covData:
+            let arr = newJArray()
+            for i in v: arr.add(%i)
+            let d = newJObject()
+            d["l"] = arr
+            d["s"] = % getFileSourceCode(k)
+            jCovData[k] = d
+
+        const htmlTemplate = staticRead("coverageTemplate.html")
+        writeFile(getEnv("NIM_COVERAGE_DIR") / "cov.html", htmlTemplate.replace("$COV_DATA", $jCovData))
+
+    if getEnv("NIM_COVERAGE_DIR").len > 0:
+        addQuitProc(saveCovResults)
 
     proc md5OfFile(path: string): string = $getMD5(readFile(path))
 

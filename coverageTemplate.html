@@ -1,0 +1,82 @@
+<html>
+<head>
+    <script>
+    var gCovData = $COV_DATA;
+    </script>
+    <style>
+.not_covered {
+    background-color: red;
+}
+
+.covered {
+    background-color: green;
+}
+
+.disabled {
+    background-color: gray;
+}
+
+</style>
+</head>
+<body>
+    <script>
+    function createTabs() {
+        var first = true;
+        for (var i in gCovData) {
+            if (first)
+                first = false;
+            else
+                document.write(" | ");
+
+            var a = document.createElement("a");
+            a.innerHTML = i;
+            a.href = "javascript:printCoverageDataForFile('" + i + "')";
+            document.body.appendChild(a);
+        }
+    }
+
+function printCoverageDataForFile(fileName) {
+    var oldTbl = document.getElementById("source-view");
+    if (oldTbl != null)
+        document.body.removeChild(oldTbl);
+
+    var tbl = document.createElement("table");
+    document.body.appendChild(tbl);
+    tbl.id = "source-view";
+
+    var lines = gCovData[fileName].s.match(/.*[\n\r]?/g);
+    for (var i = 0; i < lines.length; ++i) {
+        var tr = document.createElement("tr");
+        tbl.appendChild(tr);
+
+        var passes = gCovData[fileName].l[i + 1];
+        if (passes == 0) {
+            tr.className = "not_covered";
+        }
+        else if (passes > 0) {
+            tr.className = "covered";
+        }
+        else {
+            tr.className = "disabled";
+        }
+
+        var td = document.createElement("td");
+        td.innerHTML = i + 1;
+        tr.appendChild(td);
+
+        td = document.createElement("td");
+        td.innerHTML = "<pre>" + lines[i] + "</pre>";
+        tr.appendChild(td);
+        td = document.createElement("td");
+        if (passes != -1 && passes != undefined) {
+            td.innerHTML = passes;
+        }
+        tr.appendChild(td);
+    }
+}
+
+createTabs();
+//printCoverageDataForFile("test.nim");
+    </script>
+</body>
+</html>
