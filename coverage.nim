@@ -131,7 +131,7 @@ proc totalCoverage*(): float =
                 if data.passes != 0: inc linesCovered
     result = linesCovered.float / linesTracked.float
 
-when not defined(js):
+when not defined(js) and not defined(emscripten):
     import os, osproc
     import json
     import httpclient
