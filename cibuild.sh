@@ -1,5 +1,5 @@
 set -e
-nimble install -dy
+nimble install -y
 cd tests
 nake
 cd -
