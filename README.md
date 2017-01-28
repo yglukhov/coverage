@@ -16,13 +16,41 @@ proc myProcToCover(x: int) {.cov.} = # Add cov pragma to proc definition to enab
 myProcToCover(1)
 
 # At the end of the program, display coverage results:
-echo "BY FILE: ", coveragePercentageByFile()
+echo "BY FILE: "
+for fname, perc in coveragePercentageByFile():
+  echo fname, " ", perc
 # Outputs: BY FILE: {test.nim: 0.5}
 
 echo "TOTAL: ", totalCoverage()
 # Outputs: TOTAL: 0.5
 
 # Finer grained information may be accessed with coverageInfoByFile proc.
+```
+
+### Adding coverage to a unittest file
+```nim
+import coverage, tables, unittest
+
+# Import your code and run the tests as usual
+# suite "test": ...
+
+echo "Coverage by file: "
+for fname, num in coveragePercentageByFile().pairs():
+  echo fname, " ", num
+
+echo "Total coverage: ", totalCoverage()
+```
+
+Add "import coverage" and the top of your sources and add "{.cov.}" to every proc.
+
+
+### Generating a report
+```bash
+export NIM_COVERAGE_DIR=coverage_results
+mkdir -p "$NIM_COVERAGE_DIR"
+
+nim c -r your_tests.nim
+nimcoverage genreport
 ```
 
 ### Notes
