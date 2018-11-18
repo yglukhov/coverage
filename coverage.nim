@@ -20,7 +20,7 @@ type CovChunk* = seq[CovData]
 var coverageResults = initTable[string, seq[ptr CovChunk]]()
 
 proc registerCovChunk(fileName: string, chunk: var CovChunk) =
-    if coverageResults.getOrDefault(fileName).len > 0:
+    if coverageResults.getOrDefault(fileName).len == 0:
         when defined(js):
             var s : seq[ptr CovChunk]
             {.emit: "`s` = [`chunk`[`chunk`_Idx]];".}
