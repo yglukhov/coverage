@@ -1,11 +1,7 @@
-import macros
-import tables
-import strutils
-import sequtils
-import algorithm
+import macros, tables, strutils, os, sequtils, algorithm
 
 proc fileName(n: NimNode): string =
-    let ln = n.lineinfo
+    let ln = n.lineinfo.splitPath.tail
     let i = ln.rfind('(')
     result = ln.substr(0, i - 1)
 
@@ -21,19 +17,9 @@ var coverageResults = initTable[string, seq[ptr CovChunk]]()
 
 proc registerCovChunk(fileName: string, chunk: var CovChunk) =
     if coverageResults.getOrDefault(fileName).len == 0:
-        when defined(js):
-            var s : seq[ptr CovChunk]
-            {.emit: "`s` = [`chunk`[`chunk`_Idx]];".}
-            coverageResults[fileName] = s
-        else:
-            coverageResults[fileName] = @[addr chunk]
+        coverageResults[fileName] = @[addr chunk]
     else:
-        when defined(js):
-            var s = coverageResults[fileName]
-            {.emit: "`s`.push(`chunk`[`chunk`_Idx]);".}
-            coverageResults[fileName] = s
-        else:
-            coverageResults[fileName].add(addr chunk)
+        coverageResults[fileName].add(addr chunk)
 
 proc transform(n, track, list: NimNode): NimNode {.compileTime.} =
     result = copyNimNode(n)
@@ -67,14 +53,8 @@ macro cov*(body: untyped): untyped =
         result = transform(body, trackSym, trackList)
         result = newStmtList(listVar, result)
 
-when defined(js):
-    proc derefChunk(dest: var CovChunk, src: ptr CovChunk) =
-        {.emit: """
-        `dest`[`dest`_Idx] = `src`;
-        """.}
-else:
-    template derefChunk(dest: var CovChunk, src: ptr CovChunk) =
-        shallowCopy(dest, src[])
+template derefChunk(dest: var CovChunk, src: ptr CovChunk) =
+    shallowCopy(dest, src[])
 
 proc coveredLinesInFile*(fileName: string): seq[CovData] =
     result = newSeq[CovData]()
