@@ -252,4 +252,4 @@ when not defined(js) and not defined(emscripten):
             var data = newMultipartData()
             echo "COVERALLS REQUEST: ", $request
             data["json_file"] = ("file.json", "application/json", $request)
-            echo "COVERALLS RESPONSE: ", postContent("https://coveralls.io/api/v1/jobs", multipart=data)
+            echo "COVERALLS RESPONSE: ", newHttpClient().postContent("https://coveralls.io/api/v1/jobs", multipart=data)
