@@ -36,8 +36,17 @@ toTest(5, 5)
 
 when defined(js):
     import tables
+
+    # Get current working directory from nodejs
+    proc cwd(): string {.importc: "process.cwd", nodecl.}
+
+    # The string returned by cwd is dirty, clean it
+    proc convert(s: string): string =
+        for c in s:
+            result &= $ord(c)
+
     echo coverageInfoByFile()
     echo coveragePercentageByFile()
-    echo coveredLinesInFile("test.nim")
+    echo coveredLinesInFile(convert(cwd()) & "/test.nim")
 else:
     sendCoverageResultsToCoveralls()

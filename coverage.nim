@@ -1,7 +1,7 @@
 import macros, tables, strutils, os, sequtils, algorithm
 
 proc fileName(n: NimNode): string =
-    let ln = n.lineinfo.splitPath.tail
+    let ln = n.lineinfo
     let i = ln.rfind('(')
     result = ln.substr(0, i - 1)
 
