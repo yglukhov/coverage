@@ -1,7 +1,9 @@
 import macros, tables, strutils, os, sequtils, algorithm
 
-type CovData* = tuple[lineNo: int, passes: int]
-type CovChunk* = seq[CovData]
+type 
+    CovData* = tuple[lineNo: int, passes: int]
+    CovChunk* = seq[CovData]
+
 var coverageResults = initTable[string, seq[ptr CovChunk]]()
 
 template derefChunk(dest: var CovChunk, src: ptr CovChunk) =
@@ -31,7 +33,8 @@ proc transform(n, track, list: NimNode): NimNode {.compileTime.} =
 
     if n.kind in {nnkElifBranch, nnkOfBranch, nnkExceptBranch, nnkElse}:
         template trackStmt(track, i) =
-            inc track[i].passes
+            {.cast(gcsafe).}: # for funcDefs
+                inc track[i].passes
         template tup(lineno) = 
             (lineno, 0)
 
