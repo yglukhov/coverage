@@ -1,26 +1,39 @@
-import macros, tables, strutils, os, sequtils, algorithm
+import macros, tables, strutils, os, sequtils, algorithm, sugar
 
 type 
     CovData* = tuple[lineNo: int, passes: int]
     CovChunk* = seq[CovData]
+    CovChunkInfo* = tuple[
+        fileName,
+        procName: string, 
+        lineRange: HSlice[int, int]]
 
 var coverageResults = initTable[string, seq[ptr CovChunk]]()
+var procBounderies: Table[ptr CovChunk, CovChunkInfo]
 
 template derefChunk(dest: var CovChunk, src: ptr CovChunk) =
     shallowCopy(dest, src[])
 
-proc fileName(n: NimNode): string =
+proc getFileName(n: NimNode): string =
     let ln = n.lineInfo
     let i = ln.rfind('(')
     result = ln.substr(0, i - 1)
 
-proc lineNumber(n: NimNode): int =
+proc getLineNumber(n: NimNode): int =
     let ln = n.lineInfo
     let i = ln.rfind('(')
     let j = ln.rfind(',')
     result = parseInt(ln.substr(i + 1, j - 1))
 
-proc registerCovChunk(fileName: string, chunk: var CovChunk) =
+proc getLastLineNumber(node: NimNOde, firstLine: int = 0): int=
+  if node.len > 0:
+    getLastLineNumber(node[^1], node.lineInfoObj.line)
+  else:
+    firstline
+
+proc registerCovChunk(fileName, procName: string, lineRange: HSlice[int, int], chunk: var CovChunk, ) =
+    procBounderies[addr chunk] = (fileName, procName, lineRange)
+
     if coverageResults.hasKey fileName:
         coverageResults[fileName].add(addr chunk)
     else:
@@ -38,7 +51,7 @@ proc transform(n, track, list: NimNode): NimNode {.compileTime.} =
         template tup(lineno) = 
             (lineno, 0)
 
-        let lineno = result[^1].lineNumber
+        let lineno = result[^1].getlineNumber
         result[^1] = newStmtList(getAst trackStmt(track, list.len), result[^1])
         list.add(getAst tup(lineno))
 
@@ -46,9 +59,14 @@ macro cov*(body: untyped): untyped =
     when defined(release) and not defined(enableCodeCoverage):
         result = body
     else:
-        let file = body.fileName
+        let filename = body.getFileName
         var trackSym = genSym(nskVar, "track")
         var trackList = newNimNode(nnkBracket)
+
+        let 
+            startLine = body.lineInfoObj.line
+            endLine = body.getLastLineNumber
+
         var listVar = newStmtList(
             newNimNode(nnkVarSection).add(
                 newNimNode(nnkIdentDefs).add(
@@ -60,9 +78,15 @@ macro cov*(body: untyped): untyped =
                     prefix(trackList, "@"))),
                 newCall(
                     bindSym "registerCovChunk", 
-                    newStrLitNode(file), 
-                    trackSym)
-            )
+                    newStrLitNode(filename), 
+                    newStrLitNode body.name.strVal,
+                    newNimNode(nnkInfix).add(
+                        ident"..",
+                        startLine.newIntLitNode,
+                        endLine.newIntLitNode,
+                    ),
+                    trackSym
+            ))
 
         result = newStmtList(
             listVar, 
@@ -108,6 +132,19 @@ proc coveragePercentageByFile*(): Table[string, float] =
     for k, v in coverageInfoByFile():
         result[k] = v.linesCovered.float / v.linesTracked.float
 
+proc incompletelyCoveredProcs*(): seq[tuple[info: CovChunkInfo, uncoverdLines: seq[int]]] =
+    for covChunkRef, info in procBounderies:
+        var covChunk : CovChunk
+        derefChunk(covChunk, covChunkRef)
+            
+        let linesUncovered = collect newseq:
+            for line in covChunk:
+                if line.passes == 0: 
+                    line.lineNo
+
+        if linesUncovered.len != 0:
+            result.add (info, linesUncovered)
+
 proc totalCoverage*(): float =
     var linesTracked = 0
     var linesCovered = 0
@@ -115,8 +152,8 @@ proc totalCoverage*(): float =
         for i in 0 ..< v.len:
             var covChunk : CovChunk
             derefChunk(covChunk, v[i])
+            linesTracked.inc covChunk.len 
             for data in covChunk:
-                inc linesTracked
                 if data.passes != 0: inc linesCovered
     result = linesCovered.float / linesTracked.float
 

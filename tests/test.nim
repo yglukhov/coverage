@@ -46,6 +46,7 @@ when defined(js):
             result &= $ord(c)
 
     echo coverageInfoByFile()
+    echo incompletelyCoveredProcs()
     echo coveragePercentageByFile()
     echo coveredLinesInFile(convert(cwd()) & "/test.nim")
 else:
