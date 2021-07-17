@@ -8,7 +8,7 @@ proc test1(x: int) {.cov.} =
 
 test1(0)
 
-doAssert(totalCoverage() == 0.5)
+doAssert(totalCoverage() == 2/3)
 
 test1(1)
 

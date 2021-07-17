@@ -39,12 +39,12 @@ proc registerCovChunk(fileName, procName: string, lineRange: HSlice[int, int], c
     else:
         coverageResults[fileName] = @[addr chunk]
 
-proc transform(n, track, list: NimNode): NimNode {.compileTime.} =
+proc transform(n, track, list: NimNode, forceAdd=false): NimNode {.compileTime.} =
     result = copyNimNode(n)
     for c in n.children:
         result.add c.transform(track, list)
 
-    if n.kind in {nnkElifBranch, nnkOfBranch, nnkExceptBranch, nnkElse}:
+    if forceAdd or n.kind in {nnkElifBranch, nnkOfBranch, nnkExceptBranch, nnkElse}:
         template trackStmt(track, i) =
             {.cast(gcsafe).}: # for funcDefs
                 inc track[i].passes
@@ -88,9 +88,14 @@ macro cov*(body: untyped): untyped =
                     trackSym
             ))
 
+        body[^1].insert 0, transform(
+            newStmtList(newEmptyNode()),  trackSym, trackList, true)
+
         result = newStmtList(
             listVar, 
             transform(body, trackSym, trackList))
+
+        echo result.repr
 
 proc coveredLinesInFile*(fileName: string): seq[CovData] =
     var tmp : seq[ptr CovChunk]
