@@ -95,8 +95,6 @@ macro cov*(body: untyped): untyped =
             listVar, 
             transform(body, trackSym, trackList))
 
-        echo result.repr
-
 proc coveredLinesInFile*(fileName: string): seq[CovData] =
     var tmp : seq[ptr CovChunk]
     shallowCopy(tmp, coverageResults[fileName])
