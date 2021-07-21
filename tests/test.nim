@@ -1,16 +1,24 @@
 import "../coverage"
+import macros
 
-proc test1(x: int) {.cov.} =
+expandMacros:
+    proc withDocs {.cov.}=
+        ## i am a doc
+        if 1 == 2:
+            discard "whatever"
+
+proc test1(x: int): bool {.cov.} =
+    ## 1sas
     if x == 0:
         echo "x is 0"
     else:
         echo "x is ", x
 
-test1(0)
+discard test1(0)
 
 doAssert(totalCoverage() == 2/3)
 
-test1(1)
+discard test1(1)
 
 doAssert(totalCoverage() == 1.0)
 
