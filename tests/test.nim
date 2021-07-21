@@ -1,11 +1,4 @@
 import "../coverage"
-import macros
-
-expandMacros:
-    proc withDocs {.cov.}=
-        ## i am a doc
-        if 1 == 2:
-            discard "whatever"
 
 proc test1(x: int): bool {.cov.} =
     ## 1sas

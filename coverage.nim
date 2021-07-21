@@ -88,13 +88,7 @@ macro cov*(body: untyped): untyped =
                     trackSym
             ))
 
-        # the proc documentations need to be at very first lines
-        let 
-            docs = extractDocCommentsAndRunnables(body[^1])        
-            newProc = transform(body,trackSym, trackList, true)
-        newProc[^1].insert 0, docs
-
-        result = newStmtList(listVar, newproc)
+        newStmtList(listVar, transform(body,trackSym, trackList, true))
 
 proc coveredLinesInFile*(fileName: string): seq[CovData] =
     var tmp : seq[ptr CovChunk]
