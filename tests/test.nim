@@ -1,16 +1,17 @@
 import "../coverage"
 
-proc test1(x: int) {.cov.} =
+proc test1(x: int): bool {.cov.} =
+    ## 1sas
     if x == 0:
         echo "x is 0"
     else:
         echo "x is ", x
 
-test1(0)
+discard test1(0)
 
-doAssert(totalCoverage() == 0.5)
+doAssert(totalCoverage() == 2/3)
 
-test1(1)
+discard test1(1)
 
 doAssert(totalCoverage() == 1.0)
 
@@ -46,6 +47,7 @@ when defined(js):
             result &= $ord(c)
 
     echo coverageInfoByFile()
+    echo incompletelyCoveredProcs()
     echo coveragePercentageByFile()
     echo coveredLinesInFile(convert(cwd()) & "/test.nim")
 else:

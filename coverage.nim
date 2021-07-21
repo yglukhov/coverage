@@ -1,69 +1,102 @@
-import macros, tables, strutils, os, sequtils, algorithm
+import macros, tables, strutils, os, sequtils, algorithm, sugar
 
-proc fileName(n: NimNode): string =
+type 
+    CovData* = tuple[lineNo: int, passes: int]
+    CovChunk* = seq[CovData]
+    CovChunkInfo* = tuple[
+        fileName,
+        procName: string, 
+        lineRange: HSlice[int, int]]
+
+var coverageResults = initTable[string, seq[ptr CovChunk]]()
+var procBounderies: Table[ptr CovChunk, CovChunkInfo]
+
+template derefChunk(dest: var CovChunk, src: ptr CovChunk) =
+    shallowCopy(dest, src[])
+
+proc getFileName(n: NimNode): string =
     let ln = n.lineInfo
     let i = ln.rfind('(')
     result = ln.substr(0, i - 1)
 
-proc lineNumber(n: NimNode): int =
+proc getLineNumber(n: NimNode): int =
     let ln = n.lineInfo
     let i = ln.rfind('(')
     let j = ln.rfind(',')
     result = parseInt(ln.substr(i + 1, j - 1))
 
-type CovData* = tuple[lineNo: int, passes: int]
-type CovChunk* = seq[CovData]
-var coverageResults = initTable[string, seq[ptr CovChunk]]()
+proc getLastLineNumber(node: NimNOde, firstLine: int = 0): int=
+  if node.len > 0:
+    getLastLineNumber(node[^1], node.lineInfoObj.line)
+  else:
+    firstline
 
-proc registerCovChunk(fileName: string, chunk: var CovChunk) =
-    if coverageResults.getOrDefault(fileName).len == 0:
-        coverageResults[fileName] = @[addr chunk]
-    else:
+proc registerCovChunk(fileName, procName: string, lineRange: HSlice[int, int], chunk: var CovChunk, ) =
+    procBounderies[addr chunk] = (fileName, procName, lineRange)
+
+    if coverageResults.hasKey fileName:
         coverageResults[fileName].add(addr chunk)
+    else:
+        coverageResults[fileName] = @[addr chunk]
 
-proc transform(n, track, list: NimNode): NimNode {.compileTime.} =
+proc transform(n, track, list: NimNode, forceAdd=false): NimNode {.compileTime.} =
     result = copyNimNode(n)
     for c in n.children:
         result.add c.transform(track, list)
 
-    if n.kind in {nnkElifBranch, nnkOfBranch, nnkExceptBranch, nnkElse}:
-        let lineno = result[^1].lineNumber
-
+    if forceAdd or n.kind in {nnkElifBranch, nnkOfBranch, nnkExceptBranch, nnkElse}:
         template trackStmt(track, i) =
-            inc track[i].passes
+            {.cast(gcsafe).}: # for funcDefs
+                inc track[i].passes
+        template tup(lineno) = 
+            (lineno, 0)
 
+        let lineno = result[^1].getlineNumber
         result[^1] = newStmtList(getAst trackStmt(track, list.len), result[^1])
-        template tup(lineno) =
-              (lineno, 0)
         list.add(getAst tup(lineno))
 
 macro cov*(body: untyped): untyped =
     when defined(release) and not defined(enableCodeCoverage):
         result = body
     else:
-        let file = body.fileName
+        let filename = body.getFileName
         var trackSym = genSym(nskVar, "track")
         var trackList = newNimNode(nnkBracket)
+
+        let 
+            startLine = body.lineInfoObj.line
+            endLine = body.getLastLineNumber
+
         var listVar = newStmtList(
             newNimNode(nnkVarSection).add(
-                newNimNode(nnkIdentDefs).add(trackSym, newNimNode(nnkBracketExpr).add(newIdentNode("seq"), newIdentNode("CovData")), prefix(trackList, "@"))),
-                newCall(bindSym "registerCovChunk", newStrLitNode(file), trackSym)
-            )
+                newNimNode(nnkIdentDefs).add(
+                    trackSym, 
+                    newNimNode(nnkBracketExpr).add(
+                        newIdentNode("seq"), 
+                        newIdentNode("CovData")
+                    ), 
+                    prefix(trackList, "@"))),
+                newCall(
+                    bindSym "registerCovChunk", 
+                    newStrLitNode(filename), 
+                    newStrLitNode body.name.strVal,
+                    newNimNode(nnkInfix).add(
+                        ident"..",
+                        startLine.newIntLitNode,
+                        endLine.newIntLitNode,
+                    ),
+                    trackSym
+            ))
 
-        result = transform(body, trackSym, trackList)
-        result = newStmtList(listVar, result)
-
-template derefChunk(dest: var CovChunk, src: ptr CovChunk) =
-    shallowCopy(dest, src[])
+        newStmtList(listVar, transform(body,trackSym, trackList, true))
 
 proc coveredLinesInFile*(fileName: string): seq[CovData] =
-    result = newSeq[CovData]()
     var tmp : seq[ptr CovChunk]
     shallowCopy(tmp, coverageResults[fileName])
     for i in 0 ..< tmp.len:
         var covChunk : CovChunk
         derefChunk(covChunk, tmp[i])
-        result = result.concat(covChunk)
+        result.add covChunk
     result.sort(proc (a, b: CovData): int = cmp(a.lineNo, b.lineNo))
 
     var newRes = newSeq[CovData](result.len)
@@ -82,7 +115,6 @@ proc coveredLinesInFile*(fileName: string): seq[CovData] =
     shallowCopy(result, newRes)
 
 proc coverageInfoByFile*(): Table[string, tuple[linesTracked, linesCovered: int]] =
-    result = initTable[string, tuple[linesTracked, linesCovered: int]]()
     for k, v in coverageResults:
         var linesTracked = 0
         var linesCovered = 0
@@ -95,9 +127,21 @@ proc coverageInfoByFile*(): Table[string, tuple[linesTracked, linesCovered: int]
         result[k] = (linesTracked, linesCovered)
 
 proc coveragePercentageByFile*(): Table[string, float] =
-    result = initTable[string, float]()
     for k, v in coverageInfoByFile():
         result[k] = v.linesCovered.float / v.linesTracked.float
+
+proc incompletelyCoveredProcs*(): seq[tuple[info: CovChunkInfo, uncoverdLines: seq[int]]] =
+    for covChunkRef, info in procBounderies:
+        var covChunk : CovChunk
+        derefChunk(covChunk, covChunkRef)
+            
+        let linesUncovered = collect newseq:
+            for line in covChunk:
+                if line.passes == 0: 
+                    line.lineNo
+
+        if linesUncovered.len != 0:
+            result.add (info, linesUncovered)
 
 proc totalCoverage*(): float =
     var linesTracked = 0
@@ -106,8 +150,8 @@ proc totalCoverage*(): float =
         for i in 0 ..< v.len:
             var covChunk : CovChunk
             derefChunk(covChunk, v[i])
+            linesTracked.inc covChunk.len 
             for data in covChunk:
-                inc linesTracked
                 if data.passes != 0: inc linesCovered
     result = linesCovered.float / linesTracked.float
 
@@ -133,6 +177,7 @@ when not defined(js) and not defined(emscripten):
                     jChunk.add(jLn)
                 jChunks.add(jChunk)
             jCov[k] = jChunks
+        
         var i = 0
         while true:
             let covFile = getEnv("NIM_COVERAGE_DIR") / "cov" & $i & ".json"
@@ -141,20 +186,16 @@ when not defined(js) and not defined(emscripten):
                 break
             inc i
 
-    proc getFileSourceCode(p: string): string =
+    template getFileSourceCode(p: string): string =
         readFile(p)
 
     proc expandCovSeqIfNeeded(s: var seq[int], toLen: int) =
         if s.len <= toLen:
-            let oldLen = s.len
-            s.setLen(toLen + 1)
-            for i in oldLen .. toLen:
-                s[i] = -1
+            s.add (-1).repeat(tolen - s.len)
 
     proc createCoverageReport*() =
         let covDir = getEnv("NIM_COVERAGE_DIR")
         var i = 0
-
         var covData = initTable[string, seq[int]]()
 
         while true:
@@ -175,16 +216,15 @@ when not defined(js) and not defined(emscripten):
                         if covData[fileName][lineNo] == -1:
                             covData[fileName][lineNo] = 0
                         covData[fileName][lineNo] += passes
+            
             removeFile(covFile)
 
         let jCovData = newJObject()
         for k, v in covData:
-            let arr = newJArray()
-            for i in v: arr.add(%i)
-            let d = newJObject()
-            d["l"] = arr
-            d["s"] = % getFileSourceCode(k)
-            jCovData[k] = d
+            jCovData[k] = %* {
+                "l": v,
+                "s": getFileSourceCode(k)
+            }
 
         const htmlTemplate = staticRead("coverageTemplate.html")
         writeFile(getEnv("NIM_COVERAGE_DIR") / "cov.html", htmlTemplate.replace("$COV_DATA", $jCovData))
@@ -197,11 +237,10 @@ when not defined(js) and not defined(emscripten):
     proc sendCoverageResultsToCoveralls*() =
         var request = newJObject()
         if existsEnv("TRAVIS_JOB_ID"):
-            request["service_name"] = newJString("travis-ci")
-            request["service_job_id"] = newJString(getEnv("TRAVIS_JOB_ID"))
+            request["service_name"] = % "travis-ci"
+            request["service_job_id"] = % getEnv("TRAVIS_JOB_ID")
 
-            # Assume we're in git repo. Paths to sources should be relative to
-            # repo root
+            # Assume we're in git repo. Paths to sources should be relative to repo root
             let gitRes = execCmdEx("git rev-parse --show-toplevel")
             if gitRes.exitCode != 0:
                 raise newException(Exception, "GIT Error")
@@ -222,12 +261,14 @@ when not defined(js) and not defined(emscripten):
                         inc curLine
                     jLines.add(newJInt(data.passes))
                     inc curLine
-                var jFile = newJObject()
-                jFile["name"] = newJString(relativePath / k)
-                jFile["coverage"] = jLines
-                jFile["source_digest"] = newJString(md5OfFile(k))
-                #jFile["source"] = newJString(readFile(k))
-                files.add(jFile)
+                
+                files.add (%* {
+                    "name": relativePath / k,
+                    "coverage": jLines,
+                    "source_digest": md5OfFile(k),
+                    #"source" = newJString(readFile(k))
+                })
+
             request["source_files"] = files
             var data = newMultipartData()
             echo "COVERALLS REQUEST: ", $request
